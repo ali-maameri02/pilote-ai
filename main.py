@@ -4,7 +4,6 @@ from fastapi.middleware.cors import CORSMiddleware  # ← NOUVEAU: Import CORS
 import pandas as pd
 import io
 import traceback
-from mangum import Mangum
 
 from app.services.validator import (
     normalize_columns,
