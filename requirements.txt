@@ -4,7 +4,7 @@ anyio
 click
 colorama
 et_xmlfile
-fastapi
+fastapi==0.104.1
 h11
 idna
 numpy
@@ -19,5 +19,5 @@ starlette
 typing-inspection
 typing_extensions
 tzdata
-uvicorn
-mangum
+uvicorn==0.24.0
+

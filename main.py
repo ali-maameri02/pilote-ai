@@ -4,22 +4,23 @@ from fastapi.middleware.cors import CORSMiddleware  # ← NOUVEAU: Import CORS
 import pandas as pd
 import io
 import traceback
+from mangum import Mangum
 
-from api.app.services.validator import (
+from app.services.validator import (
     normalize_columns,
     validate_numeric,
     validate_accounts
 )
 
-from api.app.services.finance_logic import (
+from app.services.finance_logic import (
     calculate_real,
     compute_variance,
     alert
 )
 
-from api.app.services.ml_recommendations import ml_engine
+from app.services.ml_recommendations import ml_engine
 
-from api.app.models.responses import success_response, error_response
+from app.models.responses import success_response, error_response
 app = FastAPI(
     title="Smart Import Budget API",
     description="Système de comparaison financière Excel avec IA",
@@ -233,3 +234,11 @@ async def upload_excel(file: UploadFile = File(...)):
             "traceback": tb   # ← add traceback for debugging
         }
     )
+
+
+
+# This is important for Vercel
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+    
