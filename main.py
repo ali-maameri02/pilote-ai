@@ -172,8 +172,7 @@ async def upload_excel(file: UploadFile = File(...)):
                 result = budget.merge(real_by_category, left_on="Code_Categorie", right_on="Category", how="left")
                 result["Real"] = result["Real"].fillna(0)
                 result = compute_variance(result)
-                result["Alert"] = result["Variance"].apply(alert)
-
+                result["Alert"] = result.apply(lambda row: alert(row["Variance"], row["Code_Categorie"]), axis=1)
                 clean_result = result.where(pd.notnull(result), None).to_dict(orient="records")
                 french_clean_result = [
                     {"Code_Categorie": r.get("Code_Categorie"), "Nom_Categorie": r.get("Nom_Categorie"),

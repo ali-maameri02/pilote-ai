@@ -32,16 +32,36 @@ def compute_variance(df: pd.DataFrame) -> pd.DataFrame:
     
     return df
 
-def alert(variance: float) -> str:
+def alert(variance: float, code_categorie: str = "") -> str:
     """
-    Logique d'Alerte Fiche de Mission:
-    - Écart < 0% → "vert" (Économie)
-    - 0% <= Écart <= 10% → "orange" (Vigilance)
-    - Écart > 10% → "rouge" (Dépassement critique)
+    Logique d'Alerte Intelligente (Fiche de Mission Adaptée):
+    
+    POUR LES CHARGES (Comptes 6xxx) :
+    - Écart < 0% (Dépensé moins) → VERT (Économie/Bien)
+    - 0% <= Écart <= 10% → ORANGE (Vigilance)
+    - Écart > 10% (Dépensé plus) → ROUGE (Dépassement/Mal)
+
+    POUR LES PRODUITS (Comptes 7xxx) :
+    - Écart > 10% (Gagné plus) → VERT (Performance/Bien)
+    - 0% <= Écart <= 10% → ORANGE (Vigilance)
+    - Écart < 0% (Gagné moins) → ROUGE (Manque à gagner/Mal)
     """
-    if variance < 0:
-        return "vert"
-    elif variance <= 10:
-        return "orange"
+    # Déterminer si c'est un compte de produit (7) ou charge (6)
+    is_revenue = str(code_categorie).startswith("7")
+    
+    if is_revenue:
+        # LOGIQUE REVENUS (7xxx) : Plus c'est haut, mieux c'est
+        if variance > 10:
+            return "vert"   # Super performance !
+        elif 0 <= variance <= 10:
+            return "orange" # Objectif atteint ou légèrement dépassé
+        else:
+            return "rouge"  # On n'a pas atteint l'objectif (négatif)
     else:
-        return "rouge"
+        # LOGIQUE CHARGES (6xxx et autres) : Plus c'est bas, mieux c'est (Défaut)
+        if variance < 0:
+            return "vert"   # Économie réalisée
+        elif 0 <= variance <= 10:
+            return "orange" # Légère augmentation
+        else:
+            return "rouge"  # Dépassement critique
