@@ -1,23 +1,23 @@
-# annotated-doc
-# annotated-types
-# anyio
-# click
-# colorama
-# et_xmlfile
-# fastapi==0.104.1
-# h11
-# idna
-# numpy
-# openpyxl
-# pandas
-# pydantic
-# pydantic_core
-# python-dateutil
-# python-multipart
-# six
-# starlette
-# typing-inspection
-# typing_extensions
-# tzdata
-# uvicorn==0.24.0
+annotated-doc
+annotated-types
+anyio
+click
+colorama
+et_xmlfile
+fastapi==0.104.1
+h11
+idna
+numpy
+openpyxl
+pandas
+pydantic
+pydantic_core
+python-dateutil
+python-multipart
+six
+starlette
+typing-inspection
+typing_extensions
+tzdata
+uvicorn==0.24.0
 
