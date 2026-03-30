@@ -14,6 +14,7 @@ class BudgetMLRecommendations:
             budget = row.get("Montant_Prevu", 0)
             reel = row.get("Reel", 0)
             categorie = row.get("Nom_Categorie", "Inconnu")
+            code_cat = row.get("Code_Categorie", "")
             
             if budget <= 0: continue
             
@@ -21,23 +22,52 @@ class BudgetMLRecommendations:
             facteur_projection = self.jours_dans_mois / max(self.jour_actuel, 1)
             projection_fin_mois = taux_consommation * facteur_projection
             
-            if projection_fin_mois > 100:
-                probabilite_depassement = min(99, 50 + (projection_fin_mois - 100) * 2)
-                risque = "élevé"
-            elif projection_fin_mois > 85:
-                probabilite_depassement = 30 + (projection_fin_mois - 85) * 2
-                risque = "moyen"
-            else:
-                probabilite_depassement = max(1, (projection_fin_mois / 100) * 30)
-                risque = "faible"
+            # Déterminer si c'est une vente (7xx) ou une charge (6xx)
+            is_revenue = str(code_cat).startswith('7')
             
+            # Logique adaptée pour Ventes vs Charges
+            if is_revenue:
+                # POUR LES VENTES : Plus c'est haut, mieux c'est
+                if projection_fin_mois > 120:
+                    risque = "excellente_performance"
+                    probabilite = 99
+                    recommandation = f"🚀 Croissance exceptionnelle ! Objectif largement dépassé (+{projection_fin_mois-100:.0f}%)."
+                elif projection_fin_mois > 100:
+                    risque = "bon"
+                    probabilite = 90
+                    recommandation = "✅ Bonne dynamique commerciale. Maintenez l'effort."
+                elif projection_fin_mois > 85:
+                    risque = "moyen"
+                    probabilite = 50
+                    recommandation = "⚠️ Objectif en danger. Accélérez les actions commerciales."
+                else:
+                    risque = "critique"
+                    probabilite = 95
+                    recommandation = "🔴 Risque de sous-performance critique. Plan d'action requis."
+            else:
+                # POUR LES CHARGES : Logique classique de dépassement
+                if projection_fin_mois > 100:
+                    probabilite = min(99, 50 + (projection_fin_mois - 100) * 2)
+                    risque = "élevé"
+                    recommandation = self._get_expense_recommendation(projection_fin_mois, categorie)
+                elif projection_fin_mois > 85:
+                    probabilite = 30 + (projection_fin_mois - 85) * 2
+                    risque = "moyen"
+                    recommandation = "⚡ Surveiller de près les dépenses restantes."
+                else:
+                    probabilite = max(1, (projection_fin_mois / 100) * 30)
+                    risque = "faible"
+                    recommandation = "✅ Budget maîtrisé."
+
             predictions.append({
-                "categorie": categorie, "budget": budget, "reel_actuel": reel,
+                "categorie": categorie,
+                "budget": budget,
+                "reel_actuel": reel,
                 "taux_consommation_actuel": round(taux_consommation, 2),
                 "projection_fin_mois": round(projection_fin_mois, 2),
-                "probabilite_depassement": round(probabilite_depassement, 2),
+                "probabilite_depassement": round(probabilite, 2),
                 "risque": risque,
-                "recommandation": self._get_exceedance_recommendation(projection_fin_mois, risque, categorie)
+                "recommandation": recommandation
             })
         
         return {
@@ -45,11 +75,17 @@ class BudgetMLRecommendations:
             "projection_jours_restants": self.jours_dans_mois - self.jour_actuel,
             "predictions": predictions,
             "resume": {
-                "categories_a_risque_eleve": sum(1 for p in predictions if p["risque"] == "élevé"),
+                "categories_a_risque_eleve": sum(1 for p in predictions if p["risque"] in ["élevé", "critique"]),
                 "categories_a_risque_moyen": sum(1 for p in predictions if p["risque"] == "moyen"),
-                "categories_saines": sum(1 for p in predictions if p["risque"] == "faible")
+                "categories_saines": sum(1 for p in predictions if p["risque"] in ["faible", "bon", "excellente_performance"])
             }
         }
+
+    def _get_expense_recommendation(self, projection: float, categorie: str) -> str:
+        if "Masse Salariale" in categorie: return "⚠️ Réduire les heures supplémentaires et reporter les recrutements"
+        elif "Achats" in categorie or "Matières" in categorie: return "⚠️ Négocier avec fournisseurs et réduire les stocks"
+        elif "Frais" in categorie: return "⚠️ Limiter les dépenses non essentielles et reporter les achats"
+        else: return "⚠️ Réviser immédiatement les dépenses de cette catégorie"
 
     def generate_budget_recommendations(self, data: List[Dict]) -> List[Dict[str, Any]]:
         recommendations = []
@@ -64,8 +100,10 @@ class BudgetMLRecommendations:
             if budget <= 0: continue
             
             rec = self._generate_category_recommendation(categorie, budget, reel, ecart, alerte, code_cat)
-            if rec: recommendations.append(rec)
+            if rec: 
+                recommendations.append(rec)
         
+        # Tri personnalisé : Rouge d'abord, puis Orange, puis Vert (pour afficher les félicitations en dernier mais visibles)
         priority_order = {"rouge": 0, "orange": 1, "vert": 2}
         recommendations.sort(key=lambda x: priority_order.get(x["priorite"], 3))
         return recommendations
@@ -102,21 +140,29 @@ class BudgetMLRecommendations:
         else:  # vert
             priorite = "vert"
             if is_revenue:
-                action = f"🟢 Excellente performance : +{abs(ecart):.1f}% par rapport à l'objectif !"
-                economie_potentielle = 0
-                roi = "faible"
+                # CAS SPÉCIAL VENTE VERTE : On veut absolument afficher ceci
+                action = f"🟢 Excellente performance : +{abs(ecart):.1f}% par rapport à l'objectif ! Félicitations à l'équipe commerciale."
+                economie_potentielle = 0 # Ce n'est pas une économie, c'est du profit
+                roi = "faible" # Pas d'action corrective, juste constater le succès
             else:
+                # Charge verte (économie)
                 if ecart < -10:
                     action = f"🟢 Opportunité: Économie de {abs(ecart):.1f}%, possibilité de réallouer {abs(reel-budget):,.0f} DA"
                     economie_potentielle = abs(reel - budget)
                     roi = "faible"
                 else:
-                    return None
+                    # Si l'économie est faible, on ne recommande rien pour ne pas encombrer
+                    return None 
             
         return {
-            "categorie": categorie, "priorite": priorite, "alerte": alerte,
-            "action_recommandee": action, "budget_actuel": budget, "reel_actuel": reel,
-            "ecart_pourcentage": round(ecart, 2), "economie_potentielle": round(economie_potentielle, 2),
+            "categorie": categorie,
+            "priorite": priorite,
+            "alerte": alerte,
+            "action_recommandee": action,
+            "budget_actuel": budget,
+            "reel_actuel": reel,
+            "ecart_pourcentage": round(ecart, 2),
+            "economie_potentielle": round(economie_potentielle, 2),
             "roi_action": roi
         }
 
@@ -160,20 +206,18 @@ class BudgetMLRecommendations:
             "score_sante_budget": self._calculate_budget_health_score(ecart_global_pourcentage, predictions)
         }
 
-    def _get_exceedance_recommendation(self, projection: float, risque: str, categorie: str) -> str:
-        if risque == "élevé":
-            if "Masse Salariale" in categorie: return "⚠️ Réduire les heures supplémentaires et reporter les recrutements"
-            elif "Achats" in categorie or "Matières" in categorie: return "⚠️ Négocier avec fournisseurs et réduire les stocks"
-            elif "Frais" in categorie: return "⚠️ Limiter les dépenses non essentielles et reporter les achats"
-            else: return "⚠️ Réviser immédiatement les dépenses de cette catégorie"
-        elif risque == "moyen": return "⚡ Surveiller de près et préparer un plan d'action préventif"
-        else: return "✅ Bonne gestion, maintenir le cap actuel"
-
     def _get_top_recommendation(self, data: List[Dict]) -> str:
         rouges = [r for r in data if r.get("Alerte") == "rouge"]
-        if not rouges: return "✅ Budget maîtrisé, continuer la bonne gestion"
-        pire = max(rouges, key=lambda x: x.get("Ecart_Pourcentage", 0))
-        return f"🎯 Priorité: Maîtriser {pire.get('Nom_Categorie')} (dépassement de {pire.get('Ecart_Pourcentage', 0):.1f}%)"
+        if rouges:
+            pire = max(rouges, key=lambda x: x.get("Ecart_Pourcentage", 0))
+            return f"🎯 Priorité: Maîtriser {pire.get('Nom_Categorie')} (dépassement de {pire.get('Ecart_Pourcentage', 0):.1f}%)"
+        
+        verts = [r for r in data if r.get("Alerte") == "vert" and str(r.get("Code_Categorie", "")).startswith('7')]
+        if verts:
+            meilleur = max(verts, key=lambda x: x.get("Ecart_Pourcentage", 0))
+            return f"🏆 Félicitations : {meilleur.get('Nom_Categorie')} en forte hausse (+{meilleur.get('Ecart_Pourcentage', 0):.1f}%)"
+            
+        return "✅ Budget maîtrisé, continuer la bonne gestion"
 
     def _calculate_budget_health_score(self, ecart_global: float, predictions: Dict) -> int:
         score = 100
