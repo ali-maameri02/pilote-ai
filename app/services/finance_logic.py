@@ -54,14 +54,14 @@ def alert(variance: float, code_categorie: str = "") -> str:
         if variance > 10:
             return "vert"   # Super performance !
         elif 0 <= variance <= 10:
-            return "orange" # Objectif atteint ou légèrement dépassé
+            return "orange" # Objectif atteint ou légèrement dépassé (Vigilance)
         else:
             return "rouge"  # On n'a pas atteint l'objectif (négatif)
     else:
-        # LOGIQUE CHARGES (6xxx et autres) : Plus c'est bas, mieux c'est (Défaut)
+        # LOGIQUE CHARGES (6xxx et autres) : Plus c'est bas, mieux c'est
         if variance < 0:
             return "vert"   # Économie réalisée
         elif 0 <= variance <= 10:
-            return "orange" # Légère augmentation
+            return "orange" # Légère augmentation (Vigilance)
         else:
             return "rouge"  # Dépassement critique

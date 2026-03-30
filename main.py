@@ -4,21 +4,22 @@ from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 import io
 import traceback
+import re
 
 from app.services.validator import normalize_columns, validate_numeric, validate_accounts
 from app.services.finance_logic import calculate_real, compute_variance, alert
 from app.services.ml_recommendations import ml_engine
 from app.models.responses import success_response, error_response
 
-app = FastAPI(title="Smart Import Budget API", description="Système de comparaison financière Excel avec IA", version="3.0")
+app = FastAPI(title="Smart Import Budget API", description="Système de comparaison financière Excel avec IA - Multi-Périodes", version="4.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 @app.get("/")
-def home(): return {"message": "API Smart Budget v3.0 - Résultat Net Actif"}
+def home(): return {"message": "API Smart Budget v4.0 - Appariement Intelligent Actif"}
 
 @app.get("/ml/info")
 def ml_info():
-    return {"statut": "actif", "fonctionnalites": ["Prédiction", "Recommandations Intelligentes", "Détection Anomalies", "Score Santé"]}
+    return {"statut": "actif", "fonctionnalites": ["Appariement Auto", "Recommandations Intelligentes", "Détection Anomalies", "Score Santé"]}
 
 def clean_comma_numbers(df, columns):
     for col in columns:
@@ -26,6 +27,15 @@ def clean_comma_numbers(df, columns):
             df[col] = df[col].astype(str).str.replace(',', '', regex=False)
             df[col] = pd.to_numeric(df[col], errors='coerce')
     return df
+
+def extract_month_name(sheet_name: str) -> str:
+    """Extrait le nom du mois d'un nom d'onglet (ex: 'balance_mars' -> 'mars')"""
+    months = ['janvier', 'fevrier', 'mars', 'avril', 'mai', 'juin', 'juillet', 'aout', 'septembre', 'octobre', 'novembre', 'decembre']
+    name_lower = sheet_name.lower()
+    for month in months:
+        if month in name_lower:
+            return month
+    return ""
 
 @app.post("/upload-excel")
 async def upload_excel(file: UploadFile = File(...)):
@@ -35,57 +45,82 @@ async def upload_excel(file: UploadFile = File(...)):
     try:
         contents = await file.read()
         excel_file = pd.ExcelFile(io.BytesIO(contents))
-        sheet_names = excel_file.sheet_names
-        print(f"📋 Onglets détectés : {sheet_names}")
+        all_sheets = excel_file.sheet_names
+        print(f"📋 Onglets détectés : {all_sheets}")
 
-        budget_sheet_name = None
-        balance_sheets = []
-
-        for sheet in sheet_names:
+        # 1. IDENTIFIER TOUS LES BUDGETS ET LEURS MOIS
+        budgets_map = {} # Clé: mois (ex: 'mars'), Valeur: nom_onglet
+        
+        for sheet in all_sheets:
             df_header = pd.read_excel(excel_file, sheet_name=sheet, nrows=0)
             cols = [str(c).lower().strip() for c in df_header.columns]
             cols_text = " ".join(cols)
 
-            is_budget_name = "budget" in sheet.lower()
             is_budget_content = ("code" in cols_text or "cat" in cols_text) and ("montant" in cols_text or "prevu" in cols_text)
             
-            if (is_budget_name or is_budget_content) and "erreur" not in sheet.lower():
-                if budget_sheet_name is None:
-                    budget_sheet_name = sheet
-                    print(f"✅ Budget identifié : '{sheet}'")
-                continue
+            if is_budget_content and "erreur" not in sheet.lower():
+                month = extract_month_name(sheet)
+                # Si pas de mois trouvé, on utilise un identifiant unique ou 'general'
+                if not month:
+                    month = f"general_{sheet}" 
+                
+                budgets_map[month] = sheet
+                print(f"✅ Budget identifié : '{sheet}' (Mois: {month})")
+
+        # 2. IDENTIFIER TOUTES LES BALANCES ET LEURS MOIS
+        balances_list = [] # Liste de tuples (nom_onglet, mois)
+        
+        for sheet in all_sheets:
+            df_header = pd.read_excel(excel_file, sheet_name=sheet, nrows=0)
+            cols = [str(c).lower().strip() for c in df_header.columns]
+            cols_text = " ".join(cols)
 
             has_compte = "compte" in cols_text
             has_debit = any(k in cols_text for k in ["debit", "débiteur", "debiteur", "depense"])
             has_credit = any(k in cols_text for k in ["credit", "créditeur", "crediteur", "revenu"])
             
             if has_compte and has_debit and has_credit and "erreur" not in sheet.lower():
-                balance_sheets.append(sheet)
-                print(f"✅ Balance identifiée : '{sheet}'")
+                month = extract_month_name(sheet)
+                if not month:
+                    month = f"general_{sheet}"
+                
+                balances_list.append((sheet, month))
+                print(f"✅ Balance identifiée : '{sheet}' (Mois: {month})")
 
-        if not budget_sheet_name:
-            return error_response(f"❌ Aucun onglet 'Budget' trouvé. Onglets : {', '.join(sheet_names)}")
-        if not balance_sheets:
-            return error_response(f"❌ Aucun onglet 'Balance' trouvé. Onglets : {', '.join(sheet_names)}")
-
-        budget = pd.read_excel(excel_file, sheet_name=budget_sheet_name)
-        budget = budget.rename(columns={"Code_Cat": "Code_Categorie", "Montant_Prevu (DA)": "Montant_Prevu", "Nom_Categorie": "Nom_Categorie"})
-        budget = normalize_columns(budget)
-        budget = clean_comma_numbers(budget, ["Montant_Prevu"])
-
-        if not all(c in budget.columns for c in ["Code_Categorie", "Nom_Categorie", "Montant_Prevu"]):
-            return error_response(f"❌ Budget incomplet. Manque : {[c for c in ['Code_Categorie', 'Nom_Categorie', 'Montant_Prevu'] if c not in budget.columns]}")
-
-        budget["Code_Categorie"] = budget["Code_Categorie"].astype(str).str.zfill(2)
+        if not budgets_map:
+            return error_response(f"❌ Aucun onglet 'Budget' trouvé. Onglets : {', '.join(all_sheets)}")
+        if not balances_list:
+            return error_response(f"❌ Aucun onglet 'Balance' trouvé. Onglets : {', '.join(all_sheets)}")
 
         all_results = []
         summary = {"total_onglets_traites": 0, "onglets_succes": 0, "onglets_echec": 0, "details_onglets": []}
 
-        for balance_sheet_name in balance_sheets:
-            print(f"\n🔄 Traitement : {balance_sheet_name}")
+        # 3. TRAITEMENT : APPARIEMENT DYNAMIQUE
+        for balance_sheet_name, balance_month in balances_list:
+            print(f"\n🔄 Traitement : {balance_sheet_name} (Mois: {balance_month})")
+            
+            # Chercher le budget correspondant au mois de la balance
+            # Priorité 1: Budget du même mois exact
+            # Priorité 2: Budget "general" si existe
+            # Priorité 3: Premier budget disponible (fallback)
+            target_budget_sheet = budgets_map.get(balance_month)
+            
+            if not target_budget_sheet:
+                # Fallback : essayer de trouver un budget général ou le premier
+                general_keys = [k for k in budgets_map.keys() if 'general' in k]
+                if general_keys:
+                    target_budget_sheet = budgets_map[general_keys[0]]
+                    print(f"⚠️ Pas de budget pour '{balance_month}', utilisation de '{target_budget_sheet}' (Général)")
+                else:
+                    target_budget_sheet = list(budgets_map.values())[0]
+                    print(f"⚠️ Pas de budget pour '{balance_month}', utilisation de '{target_budget_sheet}' (Défaut)")
+            
+            print(f"   ↪️ Utilise le budget : '{target_budget_sheet}'")
+
             sheet_result = {"nom_onglet": balance_sheet_name, "statut": "en_attente", "donnees": None, "erreur": None, "ml_recommendations": None}
 
             try:
+                # Charger la Balance
                 balance = pd.read_excel(excel_file, sheet_name=balance_sheet_name)
                 balance = balance.rename(columns={
                     "Solde Débiteur (Dépenses)": "Debit", "Solde Debiteur (Dépenses)": "Debit",
@@ -102,11 +137,25 @@ async def upload_excel(file: UploadFile = File(...)):
                 validate_accounts(balance)
                 balance = clean_comma_numbers(balance, ["Debit", "Credit"])
 
+                # Charger le Budget Correspondant
+                budget = pd.read_excel(excel_file, sheet_name=target_budget_sheet)
+                budget = budget.rename(columns={"Code_Cat": "Code_Categorie", "Montant_Prevu (DA)": "Montant_Prevu", "Nom_Categorie": "Nom_Categorie"})
+                budget = normalize_columns(budget)
+                budget = clean_comma_numbers(budget, ["Montant_Prevu"])
+
+                if not all(c in budget.columns for c in ["Code_Categorie", "Nom_Categorie", "Montant_Prevu"]):
+                    raise ValueError(f"Budget incomplet. Manque : {[c for c in ['Code_Categorie', 'Nom_Categorie', 'Montant_Prevu'] if c not in budget.columns]}")
+                
+                budget["Code_Categorie"] = budget["Code_Categorie"].astype(str).str.zfill(2)
+
+                # Logique Métier
                 balance["Compte"] = balance["Compte"].astype(str).str.strip()
                 balance["Real"] = balance.apply(calculate_real, axis=1)
                 balance["Category"] = balance["Compte"].str[:2].str.zfill(2)
                 
                 real_by_category = balance.groupby("Category")["Real"].sum().reset_index()
+                
+                # Fusion Balance vs SON Budget
                 result = budget.merge(real_by_category, left_on="Code_Categorie", right_on="Category", how="left")
                 result["Real"] = result["Real"].fillna(0)
                 result = compute_variance(result)
@@ -123,7 +172,6 @@ async def upload_excel(file: UploadFile = File(...)):
                 # IA / ML
                 predictions = ml_engine.predict_budget_exceedance(french_clean_result)
                 
-                # Génération manuelle des recommandations pour passer le Code_Categorie
                 recommendations = []
                 for row in french_clean_result:
                     rec = ml_engine._generate_category_recommendation(
@@ -152,15 +200,18 @@ async def upload_excel(file: UploadFile = File(...)):
                                 "rouge": sum(1 for r in french_clean_result if r.get("Alerte") == "rouge")}
                 }
                 summary["onglets_succes"] += 1
+                print(f"   ✅ Succès pour {balance_sheet_name}")
 
             except ValueError as ve:
                 sheet_result["statut"] = "erreur"
                 sheet_result["erreur"] = f"Erreur de validation: {str(ve)}"
                 summary["onglets_echec"] += 1
+                print(f"   ❌ Échec : {str(ve)}")
             except Exception as e:
                 sheet_result["statut"] = "erreur"
                 sheet_result["erreur"] = f"Erreur serveur: {type(e).__name__} - {str(e)}"
                 summary["onglets_echec"] += 1
+                print(f"   ❌ Erreur : {traceback.format_exc()}")
 
             all_results.append(sheet_result)
             summary["details_onglets"].append({"nom_onglet": balance_sheet_name, "statut": sheet_result["statut"]})
@@ -173,8 +224,6 @@ async def upload_excel(file: UploadFile = File(...)):
         print(f"❌ Globale: {tb}")
         return JSONResponse(status_code=500, content={"status": "error", "message": f"Erreur serveur: {str(e)}", "traceback": tb})
 
-# This is important for Vercel
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-    
