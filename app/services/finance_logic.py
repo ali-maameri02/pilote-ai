@@ -51,7 +51,7 @@ def alert(variance: float, code_categorie: str = "") -> str:
     
     if is_revenue:
         # LOGIQUE REVENUS (7xxx) : Plus c'est haut, mieux c'est
-        if variance > 10:
+        if variance > 0:
             return "vert"   # Super performance !
         elif 0 <= variance <= 10:
             return "orange" # Objectif atteint ou légèrement dépassé (Vigilance)
