@@ -28,34 +28,34 @@ class BudgetMLRecommendations:
             # Logique adaptée pour Ventes vs Charges
             if is_revenue:
                 # POUR LES VENTES : Plus c'est haut, mieux c'est
-                if projection_fin_mois > 120:
+                if taux_consommation > 120:
                     risque = "excellente_performance"
                     probabilite = 99
-                    recommandation = f"🚀 Croissance exceptionnelle ! Objectif largement dépassé (+{projection_fin_mois-100:.0f}%)."
-                elif projection_fin_mois > 100:
+                    recommandation = f"🚀 Croissance exceptionnelle ! Objectif largement dépassé (+{taux_consommation-100:.0f}%)."
+                elif taux_consommation > 100:
                     risque = "bon"
                     probabilite = 90
                     recommandation = "✅ Bonne dynamique commerciale. Maintenez l'effort."
-                elif projection_fin_mois > 85:
+                elif taux_consommation > 85:
                     risque = "moyen"
                     probabilite = 50
-                    recommandation = "⚠️ Objectif en danger. Accélérez les actions commerciales."
+                    recommandation = "⚠️ Objectif en cours d'atteinte. Accélérez les actions commerciales."
                 else:
                     risque = "critique"
                     probabilite = 95
-                    recommandation = "🔴 Risque de sous-performance critique. Plan d'action requis."
+                    recommandation = "🔴 Risque de sous-performance. Plan d'action commercial requis."
             else:
                 # POUR LES CHARGES : Logique classique de dépassement
-                if projection_fin_mois > 100:
-                    probabilite = min(99, 50 + (projection_fin_mois - 100) * 2)
+                if taux_consommation > 100:
+                    probabilite = min(99, 50 + (taux_consommation - 100) * 2)
                     risque = "élevé"
-                    recommandation = self._get_expense_recommendation(projection_fin_mois, categorie)
-                elif projection_fin_mois > 85:
-                    probabilite = 30 + (projection_fin_mois - 85) * 2
+                    recommandation = self._get_expense_recommendation(taux_consommation, categorie)
+                elif taux_consommation > 85:
+                    probabilite = 30 + (taux_consommation - 85) * 2
                     risque = "moyen"
-                    recommandation = "⚡ Surveiller de près les dépenses restantes."
+                    recommandation = "⚡ Vigilance: Consommation budgétaire en cours."
                 else:
-                    probabilite = max(1, (projection_fin_mois / 100) * 30)
+                    probabilite = max(1, (taux_consommation / 100) * 30)
                     risque = "faible"
                     recommandation = "✅ Budget maîtrisé."
 
@@ -81,11 +81,25 @@ class BudgetMLRecommendations:
             }
         }
 
-    def _get_expense_recommendation(self, projection: float, categorie: str) -> str:
-        if "Masse Salariale" in categorie: return "⚠️ Réduire les heures supplémentaires et reporter les recrutements"
-        elif "Achats" in categorie or "Matières" in categorie: return "⚠️ Négocier avec fournisseurs et réduire les stocks"
-        elif "Frais" in categorie: return "⚠️ Limiter les dépenses non essentielles et reporter les achats"
-        else: return "⚠️ Réviser immédiatement les dépenses de cette catégorie"
+    def _get_expense_recommendation(self, taux: float, categorie: str) -> str:
+        if taux > 120:
+            if "Masse Salariale" in categorie: 
+                return "🔴 URGENT: Dépassement critique. Réduire les heures supplémentaires immédiatement."
+            elif "Achats" in categorie or "Matières" in categorie: 
+                return "🔴 URGENT: Dépassement critique. Négocier avec fournisseurs et réduire les stocks."
+            elif "Frais" in categorie: 
+                return "🔴 URGENT: Dépassement critique. Limiter les dépenses non essentielles."
+            else: 
+                return f"🔴 URGENT: Dépassement de {taux-100:.0f}%. Action corrective immédiate requise."
+        else:
+            if "Masse Salariale" in categorie: 
+                return "⚠️ Dépassement en cours. Surveiller les heures supplémentaires."
+            elif "Achats" in categorie or "Matières" in categorie: 
+                return "⚠️ Dépassement en cours. Négocier avec fournisseurs."
+            elif "Frais" in categorie: 
+                return "⚠️ Dépassement en cours. Limiter les dépenses."
+            else: 
+                return f"⚠️ Dépassement de {taux-100:.0f}%. Surveiller les dépenses restantes."
 
     def generate_budget_recommendations(self, data: List[Dict]) -> List[Dict[str, Any]]:
         recommendations = []
@@ -103,7 +117,7 @@ class BudgetMLRecommendations:
             if rec: 
                 recommendations.append(rec)
         
-        # Tri personnalisé : Rouge d'abord, puis Orange, puis Vert (pour afficher les félicitations en dernier mais visibles)
+        # Tri personnalisé : Rouge d'abord, puis Orange, puis Vert
         priority_order = {"rouge": 0, "orange": 1, "vert": 2}
         recommendations.sort(key=lambda x: priority_order.get(x["priorite"], 3))
         return recommendations
@@ -142,8 +156,8 @@ class BudgetMLRecommendations:
             if is_revenue:
                 # CAS SPÉCIAL VENTE VERTE : On veut absolument afficher ceci
                 action = f"🟢 Excellente performance : +{abs(ecart):.1f}% par rapport à l'objectif ! Félicitations à l'équipe commerciale."
-                economie_potentielle = 0 # Ce n'est pas une économie, c'est du profit
-                roi = "faible" # Pas d'action corrective, juste constater le succès
+                economie_potentielle = 0
+                roi = "faible"
             else:
                 # Charge verte (économie)
                 if ecart < -10:
@@ -151,7 +165,6 @@ class BudgetMLRecommendations:
                     economie_potentielle = abs(reel - budget)
                     roi = "faible"
                 else:
-                    # Si l'économie est faible, on ne recommande rien pour ne pas encombrer
                     return None 
             
         return {
